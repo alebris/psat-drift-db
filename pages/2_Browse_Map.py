@@ -101,7 +101,10 @@ if positions.empty:
     st.stop()
 
 center = [positions["latitude"].mean(), positions["longitude"].mean()]
-fmap = folium.Map(location=center, zoom_start=5, tiles=None, control_scale=True)
+# prefer_canvas: renders vector layers (markers, lines) on <canvas> instead of
+# SVG DOM elements — the single biggest lever for map speed with hundreds of
+# points, since it avoids creating one DOM node per marker.
+fmap = folium.Map(location=center, zoom_start=5, tiles=None, control_scale=True, prefer_canvas=True)
 ocean_basemap(fmap)
 
 for deployment_id, group in positions.groupby("deployment_id"):
@@ -117,6 +120,9 @@ for deployment_id, group in positions.groupby("deployment_id"):
         ).add_to(fmap)
 
     for _, row in group.iterrows():
+        # Tooltip only (no Popup) — a big chunk of the previous slowness was
+        # the per-point formatted Popup HTML; the tooltip alone carries the
+        # deploy_id needed for click-to-filter, at a fraction of the payload.
         folium.CircleMarker(
             location=[row["latitude"], row["longitude"]],
             radius=4,
@@ -125,14 +131,9 @@ for deployment_id, group in positions.groupby("deployment_id"):
             fill_color=QUALITY_COLORS.get(row["quality_class"], "#555555"),
             fill_opacity=0.85,
             tooltip=deploy_label,
-            popup=folium.Popup(
-                f"<b>{deploy_label}</b><br>{row['ts']}<br>"
-                f"type: {row['location_type']}<br>quality: {row['quality_class']}",
-                max_width=220,
-            ),
         ).add_to(fmap)
 
-map_data = st_folium(fmap, use_container_width=True, height=820)
+map_data = st_folium(fmap, use_container_width=True, height=820, key="browse_map")
 
 clicked_label = map_data.get("last_object_clicked_tooltip") if map_data else None
 clicked_id = deploy_to_id.get(clicked_label) if clicked_label else None
