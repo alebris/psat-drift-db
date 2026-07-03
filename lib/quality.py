@@ -3,6 +3,7 @@ quality tier (high / medium / low / unusable / unknown), while the raw code
 is always preserved alongside it. Extend the per-manufacturer maps below as
 new parsers are added.
 """
+from __future__ import annotations
 
 # Argos Location Class accuracy, per CLS Argos User's Manual:
 # 3: <250m, 2: 250-500m, 1: 500-1500m, 0: >1500m (estimate available),

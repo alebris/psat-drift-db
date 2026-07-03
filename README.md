@@ -69,14 +69,15 @@ occasional-use tool like this one.
 ```
 Home.py                       Landing page + login/signup
 pages/
-  1_Upload.py                 Upload + parse + publish a drift file
-  2_Browse_Map.py             Interactive map, filterable by deployment/quality
+  1_Upload.py                 Upload (multiple files) + parse + clean + publish
+  2_Browse_Map.py             Ocean-basemap map with drift tracks, filterable
   3_Statistics.py             Summary metrics and charts
   4_Download.py               Query builder, CSV/GeoJSON export, usage logging
 lib/
   db.py                       Supabase client (one per browser session)
   auth.py                     Login/signup widgets and login guard
   quality.py                  Manufacturer quality code -> universal tier
+  cleaning.py                 On-land position removal (global coastline mask)
   parsers/
     wildlife_computers.py     WC Locations.csv parser
 schema.sql                    Supabase table + RLS definitions
@@ -94,9 +95,23 @@ schema.sql                    Supabase table + RLS definitions
   source file (error ellipse, GPE error metrics, etc.) for full fidelity.
 - **downloads** — a log of who downloaded what, for usage tracking.
 
-Data is stored **raw as submitted** — no automatic filtering or QC beyond
-duplicate-row removal at ingestion. Downloaders filter by `quality_class`
-or `quality_raw` themselves.
+On upload, two cleaning steps run automatically: exact duplicate rows are
+removed, and any position that falls **on land** is dropped (drift tags float
+at the sea surface, so land fixes are location errors). Land detection uses a
+global ~1 km coastline mask (`global-land-mask`). Beyond that, data is stored
+as submitted; downloaders filter further by `quality_class` or `quality_raw`
+themselves. The upload page reports how many duplicate and on-land rows were
+removed for each file before you confirm publishing.
+
+## Maps
+
+The Browse page uses an ocean-styled basemap suited to marine drift data.
+By default it uses Esri's **Ocean** basemap, which needs no API key. To use
+MapTiler's **Ocean** style instead (the look at maptiler.com/maps ocean-v4),
+create a free key at [cloud.maptiler.com](https://cloud.maptiler.com) and add
+it to your secrets as `MAPTILER_KEY` (see `.streamlit/secrets.toml.example`).
+Drift positions are drawn as points colored by quality tier and, optionally,
+connected into per-deployment tracks.
 
 ## Adding a new manufacturer
 
