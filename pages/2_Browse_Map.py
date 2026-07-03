@@ -3,11 +3,9 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 
-from lib.auth import require_login
 from lib.db import get_client
 
 st.set_page_config(page_title="Browse map", page_icon="\U0001F5FA\ufe0f", layout="wide")
-require_login()
 client = get_client()
 
 st.title("Browse drift tracks")
@@ -20,11 +18,11 @@ QUALITY_COLORS = {
     "unknown": "#555555",
 }
 
+if "selected_deployment" not in st.session_state:
+    st.session_state["selected_deployment"] = None
+
 
 def ocean_basemap(fmap):
-    """Add an ocean-styled basemap. Uses MapTiler's Ocean style when a key is
-    configured in secrets; otherwise falls back to Esri's keyless Ocean
-    basemap so the app still looks right out of the box."""
     key = st.secrets.get("MAPTILER_KEY", None)
     if key:
         folium.TileLayer(
@@ -40,7 +38,6 @@ def ocean_basemap(fmap):
             name="Esri Ocean",
             control=False,
         ).add_to(fmap)
-        # light labels/reference overlay on top of the ocean base
         folium.TileLayer(
             tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Reference/MapServer/tile/{z}/{y}/{x}",
             attr="Esri",
@@ -74,23 +71,31 @@ if deployments.empty:
     st.info("No data uploaded yet.")
     st.stop()
 
-col_a, col_b = st.columns(2)
-selected = col_a.multiselect(
-    "Deployments",
-    options=list(deployments["id"]),
-    default=list(deployments["id"]),
-    format_func=lambda i: deployments.loc[deployments["id"] == i, "deploy_id"].values[0],
-)
-quality_filter = col_b.multiselect(
+id_to_deploy = dict(zip(deployments["id"], deployments["deploy_id"]))
+deploy_to_id = dict(zip(deployments["deploy_id"], deployments["id"]))
+
+top_col1, top_col2, top_col3 = st.columns([2, 2, 1])
+quality_filter = top_col1.multiselect(
     "Quality", ["high", "medium", "low", "unusable", "unknown"], default=["high", "medium", "low"]
 )
-show_tracks = st.checkbox("Connect points into drift tracks", value=True)
+show_tracks = top_col2.checkbox("Connect points into drift tracks", value=True)
 
-if not selected or not quality_filter:
-    st.warning("Select at least one deployment and one quality level.")
+selected_id = st.session_state["selected_deployment"]
+if selected_id:
+    top_col3.button(
+        "Show all deployments",
+        on_click=lambda: st.session_state.update(selected_deployment=None),
+        use_container_width=True,
+    )
+    st.caption(f"Showing only deployment **{id_to_deploy.get(selected_id, selected_id)}**.")
+
+if not quality_filter:
+    st.warning("Select at least one quality level.")
     st.stop()
 
-positions = load_positions(selected, quality_filter)
+deployment_ids = [selected_id] if selected_id else list(deployments["id"])
+positions = load_positions(deployment_ids, quality_filter)
+
 if positions.empty:
     st.warning("No positions match these filters.")
     st.stop()
@@ -98,8 +103,6 @@ if positions.empty:
 center = [positions["latitude"].mean(), positions["longitude"].mean()]
 fmap = folium.Map(location=center, zoom_start=5, tiles=None, control_scale=True)
 ocean_basemap(fmap)
-
-id_to_deploy = dict(zip(deployments["id"], deployments["deploy_id"]))
 
 for deployment_id, group in positions.groupby("deployment_id"):
     group = group.sort_values("ts")
@@ -121,6 +124,7 @@ for deployment_id, group in positions.groupby("deployment_id"):
             fill=True,
             fill_color=QUALITY_COLORS.get(row["quality_class"], "#555555"),
             fill_opacity=0.85,
+            tooltip=deploy_label,
             popup=folium.Popup(
                 f"<b>{deploy_label}</b><br>{row['ts']}<br>"
                 f"type: {row['location_type']}<br>quality: {row['quality_class']}",
@@ -128,7 +132,17 @@ for deployment_id, group in positions.groupby("deployment_id"):
             ),
         ).add_to(fmap)
 
-st_folium(fmap, use_container_width=True, height=600, returned_objects=[])
+map_data = st_folium(fmap, use_container_width=True, height=820)
+
+clicked_label = map_data.get("last_object_clicked_tooltip") if map_data else None
+clicked_id = deploy_to_id.get(clicked_label) if clicked_label else None
+
+if clicked_id and clicked_id != selected_id:
+    st.button(
+        f"Show only deployment {clicked_label}",
+        type="primary",
+        on_click=lambda cid=clicked_id: st.session_state.update(selected_deployment=cid),
+    )
 
 legend = "  ".join(
     f"<span style='color:{c}'>\u25cf</span> {q}" for q, c in QUALITY_COLORS.items()

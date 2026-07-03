@@ -3,7 +3,7 @@ import streamlit as st
 
 from lib.auth import require_login, current_user
 from lib.db import get_client
-from lib.cleaning import remove_land_points
+from lib.cleaning import remove_land_points, remove_unrealistic_speed
 from lib.parsers.wildlife_computers import parse_wc_locations
 
 st.set_page_config(page_title="Upload", page_icon="\u2b06\ufe0f", layout="wide")
@@ -34,6 +34,16 @@ uploaded_files = st.file_uploader(
     help="You can select several files at once — each is parsed and cleaned separately.",
 )
 
+max_speed_kmh = st.slider(
+    "Maximum realistic drift speed between consecutive fixes (km/h)",
+    min_value=1.0,
+    max_value=100.0,
+    value=20.0,
+    step=1.0,
+    help="Fixes implying faster drift than this from the previous accepted fix in the same "
+    "deployment are treated as location errors and removed.",
+)
+
 with st.form("deployment_metadata"):
     st.subheader("Deployment metadata (applied to all files in this batch)")
     col1, col2 = st.columns(2)
@@ -59,15 +69,20 @@ if submitted:
             continue
 
         dupes = positions.attrs.get("dupes_removed", 0)
-        cleaned = remove_land_points(positions)
-        land = cleaned.attrs.get("land_removed", 0)
+
+        land_cleaned = remove_land_points(positions)
+        land = land_cleaned.attrs.get("land_removed", 0)
+
+        speed_cleaned = remove_unrealistic_speed(land_cleaned, max_speed_kmh)
+        speed = speed_cleaned.attrs.get("speed_removed", 0)
 
         parsed.append(
             {
                 "filename": f.name,
-                "positions": cleaned,
+                "positions": speed_cleaned,
                 "dupes": dupes,
                 "land": land,
+                "speed": speed,
             }
         )
 
@@ -79,11 +94,13 @@ if submitted:
         "files": parsed,
         "species": species,
         "notes": notes,
+        "max_speed_kmh": max_speed_kmh,
     }
 
 batch = st.session_state.get("pending_batch")
 if batch is not None:
     st.subheader("Review before publishing")
+    st.caption(f"Speed filter applied at {batch['max_speed_kmh']:.0f} km/h.")
 
     total_positions = 0
     for item in batch["files"]:
@@ -96,6 +113,8 @@ if batch is not None:
             cleaning_bits.append(f"{item['dupes']} duplicate row(s) removed")
         if item["land"]:
             cleaning_bits.append(f"{item['land']} on-land position(s) removed")
+        if item["speed"]:
+            cleaning_bits.append(f"{item['speed']} unrealistic-speed position(s) removed")
         summary = f"{len(pos)} positions kept"
         if cleaning_bits:
             summary += " (" + "; ".join(cleaning_bits) + ")"

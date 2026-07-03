@@ -16,9 +16,15 @@ data by position, time, and location quality.
 1. Sign up at [supabase.com](https://supabase.com) and create a new project (free tier).
 2. Open **SQL Editor**, paste in the contents of `schema.sql`, and run it.
    This creates the `profiles`, `deployments`, `positions`, and `downloads`
-   tables with row-level security already configured (any authenticated
-   user can read everything; users can only insert data under their own
-   account).
+   tables with row-level security already configured: `deployments` and
+   `positions` are **readable by anyone** (the map and statistics pages don't
+   require login), but only insertable by the authenticated uploader, as
+   themselves.
+
+   **Already have a project running from an earlier version of this app?**
+   Don't rerun `schema.sql` (it'll fail on tables that already exist) — run
+   `migrations/001_public_read.sql` instead, which just updates the two read
+   policies in place.
 3. Under **Authentication → Providers**, email/password is enabled by
    default — that's all this app uses. Under **Authentication → Settings**,
    decide whether to require email confirmation (off is easiest while
@@ -77,7 +83,7 @@ lib/
   db.py                       Supabase client (one per browser session)
   auth.py                     Login/signup widgets and login guard
   quality.py                  Manufacturer quality code -> universal tier
-  cleaning.py                 On-land position removal (global coastline mask)
+  cleaning.py                 Land removal + unrealistic-speed removal
   parsers/
     wildlife_computers.py     WC Locations.csv parser
 schema.sql                    Supabase table + RLS definitions
@@ -95,13 +101,19 @@ schema.sql                    Supabase table + RLS definitions
   source file (error ellipse, GPE error metrics, etc.) for full fidelity.
 - **downloads** — a log of who downloaded what, for usage tracking.
 
-On upload, two cleaning steps run automatically: exact duplicate rows are
-removed, and any position that falls **on land** is dropped (drift tags float
-at the sea surface, so land fixes are location errors). Land detection uses a
-global ~1 km coastline mask (`global-land-mask`). Beyond that, data is stored
-as submitted; downloaders filter further by `quality_class` or `quality_raw`
-themselves. The upload page reports how many duplicate and on-land rows were
-removed for each file before you confirm publishing.
+On upload, three cleaning steps run automatically, each reported per file
+before you confirm publishing: exact duplicate rows are removed; positions
+falling **on land** are dropped (drift tags float at the sea surface, so land
+fixes are location errors) using a global ~1 km coastline mask
+(`global-land-mask`); and positions implying an **unrealistic drift speed**
+from the previous accepted fix in the same deployment are dropped (a
+sequential filter — see `lib/cleaning.py` for its known limitations). The
+speed threshold defaults to 20 km/h and is adjustable per upload via a
+slider. Beyond that, data is stored as submitted; downloaders filter further
+by `quality_class` or `quality_raw` themselves.
+
+**Read access is public** — the Browse map and Statistics pages work without
+signing in. Only Upload and Download require authentication.
 
 ## Maps
 
@@ -111,7 +123,10 @@ MapTiler's **Ocean** style instead (the look at maptiler.com/maps ocean-v4),
 create a free key at [cloud.maptiler.com](https://cloud.maptiler.com) and add
 it to your secrets as `MAPTILER_KEY` (see `.streamlit/secrets.toml.example`).
 Drift positions are drawn as points colored by quality tier and, optionally,
-connected into per-deployment tracks.
+connected into per-deployment tracks. Click any point to reveal a
+**"Show only deployment ..."** button, which filters the map down to that
+one deployment; a **"Show all deployments"** button appears whenever a
+filter is active to reset.
 
 ## Adding a new manufacturer
 

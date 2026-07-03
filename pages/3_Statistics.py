@@ -2,11 +2,9 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from lib.auth import require_login
 from lib.db import get_client
 
 st.set_page_config(page_title="Statistics", page_icon="\U0001F4CA", layout="wide")
-require_login()
 client = get_client()
 
 st.title("Database statistics")

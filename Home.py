@@ -13,7 +13,7 @@ if user is None:
     st.markdown(
         "Marine scientists upload post-release drift tracks from PSAT tags; "
         "oceanographers query and download the pooled data by position, time, and quality. "
-        "Sign in or create an account to get started."
+        "**Browse the map and statistics freely below** — signing in is only needed to upload or download data."
     )
     login_widget()
 else:

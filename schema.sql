@@ -96,15 +96,17 @@ create policy "profiles_select_authenticated" on public.profiles
 create policy "profiles_update_own" on public.profiles
   for update using (auth.uid() = id);
 
-create policy "deployments_select_authenticated" on public.deployments
-  for select using (auth.role() = 'authenticated');
+-- Deployments and positions: readable by anyone (public map/stats), but only
+-- insertable by the authenticated uploader, as themselves.
+create policy "deployments_select_public" on public.deployments
+  for select using (true);
 create policy "deployments_insert_own" on public.deployments
   for insert with check (auth.uid() = uploader_id);
 create policy "deployments_update_own" on public.deployments
   for update using (auth.uid() = uploader_id);
 
-create policy "positions_select_authenticated" on public.positions
-  for select using (auth.role() = 'authenticated');
+create policy "positions_select_public" on public.positions
+  for select using (true);
 create policy "positions_insert_own_deployment" on public.positions
   for insert with check (
     exists (
