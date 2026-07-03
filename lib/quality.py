@@ -18,6 +18,16 @@ ARGOS_QUALITY_MAP = {
     "Z": "unusable",
 }
 
+# Shared palette so quality tiers look the same on the map, in statistics
+# charts, and anywhere else they're rendered.
+QUALITY_COLORS = {
+    "high": "#1a9850",
+    "medium": "#f2b705",
+    "low": "#d62728",
+    "unusable": "#888888",
+    "unknown": "#555555",
+}
+
 
 def harmonize(location_type: str, quality_raw: str | None) -> str:
     if not quality_raw:

@@ -5,15 +5,25 @@ from lib.auth import require_login, current_user
 from lib.db import get_client
 from lib.cleaning import remove_land_points, remove_unrealistic_speed
 from lib.parsers.wildlife_computers import parse_wc_locations
-from lib.style import apply_custom_css
+from lib.style import apply_style
 
 st.set_page_config(page_title="Upload", page_icon="\u2b06\ufe0f", layout="wide")
-apply_custom_css()
+apply_style()
+
+st.title("Upload drift data")
+
+if current_user() is None:
+    st.info(
+        "**Why do I need to sign in to upload?** Every deployment is attributed to the "
+        "account that submitted it, so we can credit your contribution, reach you with "
+        "questions about a specific track, and let you edit or retract your own data later. "
+        "Browsing the map and statistics stays open to everyone \u2014 an account is only "
+        "required for uploading and downloading."
+    )
+
 require_login()
 user = current_user()
 client = get_client()
-
-st.title("Upload drift data")
 
 manufacturer = st.selectbox(
     "Tag manufacturer / file format",

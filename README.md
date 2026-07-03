@@ -75,21 +75,19 @@ occasional-use tool like this one.
 ```
 Home.py                       Landing page + login/signup
 pages/
-  1_Upload.py                 Upload (multiple files) + parse + clean + publish
-  2_Browse_Map.py             Ocean-basemap map with drift tracks, filterable
-  3_Statistics.py             Summary metrics and charts
+  1_Browse_Map.py             Ocean-basemap map with drift tracks + area query tool
+  2_Statistics.py             Summary metrics and charts
+  3_Upload.py                 Upload (multiple files) + parse + clean + publish
   4_Download.py               Query builder, CSV/GeoJSON export, usage logging
 lib/
   db.py                       Supabase client (one per browser session)
-  auth.py                     Login/signup widgets, login guard, session persistence
-  cookies.py                  Encrypted cookie storage for the persistent-login refresh token
-  maps.py                     Shared basemap + quality-color styling for both map pages
-  quality.py                  Manufacturer quality code -> universal tier
+  auth.py                     Login/signup widgets and login guard
+  style.py                    Shared CSS (sidebar nav sizing, card styling)
+  quality.py                  Manufacturer quality code -> universal tier + shared color palette
   cleaning.py                 Land removal + unrealistic-speed removal
   parsers/
     wildlife_computers.py     WC Locations.csv parser
 schema.sql                    Supabase table + RLS definitions
-migrations/                   Incremental SQL changes for already-running projects
 ```
 
 ## Data model
@@ -120,70 +118,25 @@ signing in. Only Upload and Download require authentication.
 
 ## Maps
 
-The map pages use an ocean-styled basemap suited to marine drift data.
-By default they use Esri's **Ocean** basemap, which needs no API key. To use
-your own MapTiler style instead, create a free key at
-[cloud.maptiler.com](https://cloud.maptiler.com) and add it to your secrets
-as `MAPTILER_KEY`. If you've built a **custom style** in MapTiler Cloud
-(rather than using a built-in preset), also set `MAPTILER_STYLE_ID` to that
-style's ID — the segment after `/maps/` in its dashboard URL. Both go in
-`.streamlit/secrets.toml` (see the `.example` file).
-
-A note on *how* to plug in a MapTiler style, since MapTiler Cloud's "Use"
-panel offers several integration options and they aren't interchangeable
-here:
-- **Raster tiles (XYZ)** — what this app uses. A plain image-tile URL that
-  drops straight into our existing map layer, works with any style (vector
-  or raster-authored), and needs no other changes. Recommended.
-- **Style JSON** — for MapLibre GL JS / Mapbox GL JS. Gives sharper vector
-  rendering at all zoom levels, but means rewriting the map from Leaflet to
-  MapLibre GL JS — a bigger change, worth it only if raster tiles ever stop
-  looking good enough.
-- **Embeddable viewer** (iframe) — not usable here at all: it's a sealed
-  widget with no way to overlay our own drift-position data or wire up
-  click-to-filter, since we can't reach inside an iframe from the parent
-  page.
-
+The Browse page uses an ocean-styled basemap suited to marine drift data.
+By default it uses Esri's **Ocean** basemap, which needs no API key. To use
+MapTiler's **Ocean** style instead (the look at maptiler.com/maps ocean-v4),
+create a free key at [cloud.maptiler.com](https://cloud.maptiler.com) and add
+it to your secrets as `MAPTILER_KEY` (see `.streamlit/secrets.toml.example`).
 Drift positions are drawn as points colored by quality tier and, optionally,
 connected into per-deployment tracks. Click any point to reveal a
 **"Show only deployment ..."** button, which filters the map down to that
 one deployment; a **"Show all deployments"** button appears whenever a
 filter is active to reset.
 
-**On map performance:** `prefer_canvas=True` renders points on a single
-`<canvas>` instead of one SVG DOM element per point — the biggest lever for
-speed with hundreds of positions. Per-point popups were also removed in
-favor of lightweight tooltips (popups meant generating and shipping a
-formatted HTML block for every single point; tooltips carry just the
-deploy ID). If the map ever needs to comfortably handle thousands of points
-rather than hundreds, the next step up would be switching to WebGL-based
-rendering (e.g. deck.gl/pydeck) or MapLibre GL JS — meaningfully faster
-still, but a larger rewrite than either change made so far.
-
-## Querying on the map
-
-The Download page's map works like GEBCO's grid-subsetting tool: draw a
-rectangle to set the query's spatial extent. The selection persists on the
-map (as a shaded box) while you also set a quality filter and/or run the
-query; **"Clear drawn area"** resets it. Drawing a rectangle is entirely
-optional — leave it undrawn to search everywhere, and combine that with the
-**time period** field to query by date range alone, with no spatial
-constraint. Spatial, temporal, and quality filters are independent: use any
-one, any two, or all three together.
-
-## Staying logged in
-
-Login now persists across page reloads. Streamlit's own session state does
-not survive a hard refresh (a refresh creates a brand-new session), so on
-login the app stores your Supabase *refresh token* — not your password, not
-even the short-lived access token — in a cookie encrypted with a
-server-side secret (`COOKIE_PASSWORD` in your secrets; generate a random
-value per the comment in `.streamlit/secrets.toml.example`, never reuse the
-placeholder). On each page load, that cookie is used to silently restore
-your session. Logging out clears the cookie. Worth knowing: the encryption
-protects the cookie from casual inspection, but it isn't hardened the way a
-bank's session storage would be — proportionate for a research tool used by
-a known group of colleagues, not for anything with a higher security bar.
+The **"Query area"** expander lets you type a lat/lon bounding box, which is
+drawn on the map as a shaded rectangle; a **"Use this area on Download
+page"** button carries those coordinates over to the Download page's area
+filter, similar to GEBCO's grid-subsetting tool. On the Download page, area,
+time period, and specific-tags filters are independent and combinable — use
+any one, any two, or all three together. Checking "Filter by specific
+tag(s)" reveals a dropdown of tags at the bottom of the page, just above the
+query button.
 
 ## Adding a new manufacturer
 
@@ -193,7 +146,7 @@ a known group of colleagues, not for anything with a higher security bar.
    location_type, quality_raw, quality_class, raw_metadata`).
 2. Extend `lib/quality.py` with that manufacturer's quality-code mapping.
 3. Wire the new format into the manufacturer selector in
-   `pages/1_Upload.py` and add its enum value to the `manufacturer` check
+   `pages/3_Upload.py` and add its enum value to the `manufacturer` check
    constraint in `schema.sql`.
 
 No changes to the database schema or the other pages are needed — the

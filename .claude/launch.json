@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "psat-drift-db",
+      "runtimeExecutable": "/Users/a40316/Documents/Tag drift data/psat-drift-db/.venv/bin/streamlit",
+      "runtimeArgs": ["run", "Home.py", "--server.headless", "true", "--server.port", "8503"],
+      "port": 8503
+    }
+  ]
+}

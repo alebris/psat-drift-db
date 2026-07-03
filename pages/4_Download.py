@@ -1,131 +1,113 @@
 import json
 
-import folium
 import pandas as pd
 import streamlit as st
-from folium.plugins import Draw
-from streamlit_folium import st_folium
 
 from lib.auth import require_login, current_user
 from lib.db import get_client
-from lib.maps import ocean_basemap
-from lib.style import apply_custom_css
+from lib.style import apply_style
 
-st.set_page_config(page_title="Download", page_icon="\u2b07\ufe0f", layout="wide")
-apply_custom_css()
+st.set_page_config(page_title="Download", page_icon="⬇️", layout="wide")
+apply_style()
 require_login()
 user = current_user()
 client = get_client()
 
 st.title("Query and download")
-st.caption(
-    "Draw a rectangle on the map to limit results to that area — or skip drawing entirely "
-    "and use only the time period below to query by date alone."
+st.caption("Combine any of the filters below to scope your query, then export the results.")
+
+
+@st.cache_data(ttl=300)
+def load_deployments():
+    res = client.table("deployments").select("id, deploy_id, species, manufacturer").execute()
+    return pd.DataFrame(res.data)
+
+
+bbox = st.session_state.pop("download_bbox", None)
+if bbox:
+    st.session_state["dl_lat_min"] = bbox["lat_min"]
+    st.session_state["dl_lat_max"] = bbox["lat_max"]
+    st.session_state["dl_lon_min"] = bbox["lon_min"]
+    st.session_state["dl_lon_max"] = bbox["lon_max"]
+    st.success("Area pre-filled from your Browse Map selection.")
+
+st.subheader("Area")
+col1, col2 = st.columns(2)
+lat_min = col1.number_input(
+    "Min latitude", min_value=-90.0, max_value=90.0, value=st.session_state.get("dl_lat_min", -90.0), key="dl_lat_min"
+)
+lat_max = col1.number_input(
+    "Max latitude", min_value=-90.0, max_value=90.0, value=st.session_state.get("dl_lat_max", 90.0), key="dl_lat_max"
+)
+lon_min = col2.number_input(
+    "Min longitude", min_value=-180.0, max_value=180.0, value=st.session_state.get("dl_lon_min", -180.0), key="dl_lon_min"
+)
+lon_max = col2.number_input(
+    "Max longitude", min_value=-180.0, max_value=180.0, value=st.session_state.get("dl_lon_max", 180.0), key="dl_lon_max"
 )
 
-if "query_bbox" not in st.session_state:
-    st.session_state["query_bbox"] = None
-if "query_map_generation" not in st.session_state:
-    st.session_state["query_map_generation"] = 0
+st.subheader("Time period")
+date_range = st.date_input("Date range (optional)", value=())
 
-fmap = folium.Map(location=[20, 0], zoom_start=2, tiles=None, control_scale=True, prefer_canvas=True)
-ocean_basemap(fmap)
-
-if st.session_state["query_bbox"]:
-    b = st.session_state["query_bbox"]
-    folium.Rectangle(
-        bounds=[[b["lat_min"], b["lon_min"]], [b["lat_max"], b["lon_max"]]],
-        color="#3366aa",
-        weight=2,
-        fill=True,
-        fill_opacity=0.08,
-    ).add_to(fmap)
-
-Draw(
-    export=False,
-    draw_options={
-        "rectangle": {"shapeOptions": {"color": "#3366aa"}},
-        "polygon": False,
-        "circle": False,
-        "circlemarker": False,
-        "marker": False,
-        "polyline": False,
-    },
-    edit_options={"edit": False, "remove": False},
-).add_to(fmap)
-
-map_data = st_folium(
-    fmap,
-    use_container_width=True,
-    height=500,
-    key=f"query_map_{st.session_state['query_map_generation']}",
-)
-
-last_drawing = map_data.get("last_active_drawing") if map_data else None
-if last_drawing:
-    coords = last_drawing["geometry"]["coordinates"][0]
-    lons = [c[0] for c in coords]
-    lats = [c[1] for c in coords]
-    new_bbox = {"lat_min": min(lats), "lat_max": max(lats), "lon_min": min(lons), "lon_max": max(lons)}
-    if new_bbox != st.session_state["query_bbox"]:
-        st.session_state["query_bbox"] = new_bbox
-        st.rerun()
-
-col_a, col_b = st.columns([4, 1])
-with col_a:
-    if st.session_state["query_bbox"]:
-        b = st.session_state["query_bbox"]
-        st.caption(
-            f"Area selected: lat {b['lat_min']:.2f} to {b['lat_max']:.2f}, "
-            f"lon {b['lon_min']:.2f} to {b['lon_max']:.2f}"
-        )
-    else:
-        st.caption("No area drawn \u2014 spatial filter won't be applied; search covers everywhere.")
-with col_b:
-    if st.session_state["query_bbox"]:
-        if st.button("Clear drawn area", use_container_width=True):
-            st.session_state["query_bbox"] = None
-            st.session_state["query_map_generation"] += 1
-            st.rerun()
-
-date_range = st.date_input("Time period (optional)", value=())
+st.subheader("Quality")
 quality_filter = st.multiselect(
     "Quality", ["high", "medium", "low", "unusable", "unknown"], default=["high", "medium", "low"]
 )
 
+st.subheader("Specific tags")
+use_tag_filter = st.checkbox("Filter by specific tag(s) instead of the whole area")
+selected_deploy_ids = []
+if use_tag_filter:
+    deployments = load_deployments()
+    if deployments.empty:
+        st.info("No tags available yet.")
+    else:
+        deployments["label"] = deployments.apply(
+            lambda r: f"{r['deploy_id']}" + (f" — {r['species']}" if r.get("species") else ""), axis=1
+        )
+        label_to_id = dict(zip(deployments["label"], deployments["id"]))
+        selected_labels = st.multiselect("Tags", sorted(label_to_id.keys()))
+        selected_deploy_ids = [label_to_id[l] for l in selected_labels]
+
 if st.button("Run query", type="primary"):
+    if use_tag_filter and not selected_deploy_ids:
+        st.warning("Select at least one tag, or uncheck the tag filter.")
+        st.stop()
+    if not quality_filter:
+        st.warning("Select at least one quality level.")
+        st.stop()
+
     query = (
         client.table("positions")
-        .select(
-            "deployment_id, ts, latitude, longitude, location_type, quality_raw, quality_class, "
-            "deployments(deploy_id, species, manufacturer)"
-        )
+        .select("deployment_id, ts, latitude, longitude, location_type, quality_raw, quality_class, deployments(deploy_id, species, manufacturer)")
+        .gte("latitude", lat_min)
+        .lte("latitude", lat_max)
+        .gte("longitude", lon_min)
+        .lte("longitude", lon_max)
         .in_("quality_class", quality_filter)
     )
-
-    bbox = st.session_state["query_bbox"]
-    if bbox:
-        query = (
-            query.gte("latitude", bbox["lat_min"])
-            .lte("latitude", bbox["lat_max"])
-            .gte("longitude", bbox["lon_min"])
-            .lte("longitude", bbox["lon_max"])
-        )
     if len(date_range) == 2:
         query = query.gte("ts", date_range[0].isoformat()).lte("ts", date_range[1].isoformat())
+    if use_tag_filter:
+        query = query.in_("deployment_id", selected_deploy_ids)
 
     res = query.execute()
     st.session_state["query_result"] = pd.DataFrame(res.data)
     st.session_state["query_filters"] = {
-        "bbox": bbox,
+        "lat_min": lat_min,
+        "lat_max": lat_max,
+        "lon_min": lon_min,
+        "lon_max": lon_max,
         "quality": quality_filter,
         "date_range": [d.isoformat() for d in date_range] if len(date_range) == 2 else None,
+        "tags": selected_labels if use_tag_filter else None,
     }
 
 df = st.session_state.get("query_result")
 filters = st.session_state.get("query_filters", {})
 
 if df is not None:
+    st.divider()
     st.write(f"{len(df)} positions match.")
     st.dataframe(df.head(50), use_container_width=True)
 

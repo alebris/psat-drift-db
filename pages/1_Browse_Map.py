@@ -4,21 +4,14 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 from lib.db import get_client
-from lib.style import apply_custom_css
+from lib.quality import QUALITY_COLORS
+from lib.style import apply_style
 
-st.set_page_config(page_title="Browse map", page_icon="\U0001F5FA\ufe0f", layout="wide")
-apply_custom_css()
+st.set_page_config(page_title="Browse map", page_icon="\U0001F5FA️", layout="wide")
+apply_style()
 client = get_client()
 
 st.title("Browse drift tracks")
-
-QUALITY_COLORS = {
-    "high": "#1a9850",
-    "medium": "#f2b705",
-    "low": "#d62728",
-    "unusable": "#888888",
-    "unknown": "#555555",
-}
 
 if "selected_deployment" not in st.session_state:
     st.session_state["selected_deployment"] = None
@@ -29,7 +22,7 @@ def ocean_basemap(fmap):
     if key:
         folium.TileLayer(
             tiles=f"https://api.maptiler.com/maps/ocean/{{z}}/{{x}}/{{y}}.png?key={key}",
-            attr="\u00a9 MapTiler \u00a9 OpenStreetMap contributors",
+            attr="© MapTiler © OpenStreetMap contributors",
             name="MapTiler Ocean",
             control=False,
         ).add_to(fmap)
@@ -91,6 +84,37 @@ if selected_id:
     )
     st.caption(f"Showing only deployment **{id_to_deploy.get(selected_id, selected_id)}**.")
 
+with st.expander("\U0001F4E6 Query area — draw a bounding box to send to the Download page"):
+    st.caption(
+        "Enter coordinates to draw a box on the map below, then send that area to the "
+        "Download page to query positions within it — similar to GEBCO's grid subsetting tool."
+    )
+    with st.form("bbox_form"):
+        b1, b2 = st.columns(2)
+        box_lat_min = b1.number_input("Min latitude", value=-90.0, min_value=-90.0, max_value=90.0)
+        box_lat_max = b1.number_input("Max latitude", value=90.0, min_value=-90.0, max_value=90.0)
+        box_lon_min = b2.number_input("Min longitude", value=-180.0, min_value=-180.0, max_value=180.0)
+        box_lon_max = b2.number_input("Max longitude", value=180.0, min_value=-180.0, max_value=180.0)
+        draw_submitted = st.form_submit_button("Draw box on map")
+
+    if draw_submitted:
+        st.session_state["map_bbox"] = {
+            "lat_min": box_lat_min,
+            "lat_max": box_lat_max,
+            "lon_min": box_lon_min,
+            "lon_max": box_lon_max,
+        }
+
+    map_bbox = st.session_state.get("map_bbox")
+    if map_bbox:
+        bc1, bc2, bc3 = st.columns([1, 1.6, 3])
+        if bc1.button("Clear box"):
+            del st.session_state["map_bbox"]
+            st.rerun()
+        if bc2.button("Use this area on Download page →", type="primary"):
+            st.session_state["download_bbox"] = map_bbox
+            st.switch_page("pages/4_Download.py")
+
 if not quality_filter:
     st.warning("Select at least one quality level.")
     st.stop()
@@ -103,11 +127,23 @@ if positions.empty:
     st.stop()
 
 center = [positions["latitude"].mean(), positions["longitude"].mean()]
-# prefer_canvas: renders vector layers (markers, lines) on <canvas> instead of
-# SVG DOM elements — the single biggest lever for map speed with hundreds of
-# points, since it avoids creating one DOM node per marker.
-fmap = folium.Map(location=center, zoom_start=5, tiles=None, control_scale=True, prefer_canvas=True)
+fmap = folium.Map(location=center, zoom_start=5, tiles=None, control_scale=True)
 ocean_basemap(fmap)
+
+map_bbox = st.session_state.get("map_bbox")
+if map_bbox:
+    folium.Rectangle(
+        bounds=[
+            [map_bbox["lat_min"], map_bbox["lon_min"]],
+            [map_bbox["lat_max"], map_bbox["lon_max"]],
+        ],
+        color="#0f6f8c",
+        weight=2,
+        fill=True,
+        fill_color="#0f6f8c",
+        fill_opacity=0.08,
+        tooltip="Query area",
+    ).add_to(fmap)
 
 for deployment_id, group in positions.groupby("deployment_id"):
     group = group.sort_values("ts")
@@ -122,20 +158,22 @@ for deployment_id, group in positions.groupby("deployment_id"):
         ).add_to(fmap)
 
     for _, row in group.iterrows():
-        # Tooltip only (no Popup) — a big chunk of the previous slowness was
-        # the per-point formatted Popup HTML; the tooltip alone carries the
-        # deploy_id needed for click-to-filter, at a fraction of the payload.
         folium.CircleMarker(
             location=[row["latitude"], row["longitude"]],
             radius=4,
-            color=None,
+            stroke=False,
             fill=True,
             fill_color=QUALITY_COLORS.get(row["quality_class"], "#555555"),
-            fill_opacity=0.85,
+            fill_opacity=0.9,
             tooltip=deploy_label,
+            popup=folium.Popup(
+                f"<b>{deploy_label}</b><br>{row['ts']}<br>"
+                f"type: {row['location_type']}<br>quality: {row['quality_class']}",
+                max_width=220,
+            ),
         ).add_to(fmap)
 
-map_data = st_folium(fmap, use_container_width=True, height=820, key="browse_map")
+map_data = st_folium(fmap, use_container_width=True, height=820)
 
 clicked_label = map_data.get("last_object_clicked_tooltip") if map_data else None
 clicked_id = deploy_to_id.get(clicked_label) if clicked_label else None
@@ -148,6 +186,6 @@ if clicked_id and clicked_id != selected_id:
     )
 
 legend = "  ".join(
-    f"<span style='color:{c}'>\u25cf</span> {q}" for q, c in QUALITY_COLORS.items()
+    f"<span style='color:{c}'>●</span> {q}" for q, c in QUALITY_COLORS.items()
 )
 st.markdown(f"{len(positions)} positions shown.  &nbsp; {legend}", unsafe_allow_html=True)
