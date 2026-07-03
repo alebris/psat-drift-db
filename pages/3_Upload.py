@@ -181,6 +181,10 @@ if batch is not None:
                         client.table("positions").insert(rows[i : i + 500]).execute()
                     published += len(rows)
 
+            # Invalidate the map/statistics/download data caches so this new
+            # deployment shows up right away instead of after the 5-min TTL.
+            st.cache_data.clear()
+
             st.success(f"Published {published} positions across {len(batch['files'])} file(s). Thank you!")
             del st.session_state["pending_batch"]
         except Exception as e:

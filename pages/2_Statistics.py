@@ -10,7 +10,11 @@ st.set_page_config(page_title="Statistics", page_icon="\U0001F4CA", layout="wide
 apply_style()
 client = get_client()
 
-st.title("Database statistics")
+title_col, refresh_col = st.columns([5, 1])
+title_col.title("Database statistics")
+if refresh_col.button("\U0001F504 Refresh data", use_container_width=True, help="Reload the latest data from the database (bypasses the 5-minute cache)."):
+    st.cache_data.clear()
+    st.rerun()
 
 
 @st.cache_data(ttl=300)

@@ -11,7 +11,11 @@ st.set_page_config(page_title="Browse map", page_icon="\U0001F5FA️", layout="w
 apply_style()
 client = get_client()
 
-st.title("Browse drift tracks")
+title_col, refresh_col = st.columns([5, 1])
+title_col.title("Browse drift tracks")
+if refresh_col.button("\U0001F504 Refresh data", use_container_width=True, help="Reload the latest data from the database (bypasses the 5-minute cache)."):
+    st.cache_data.clear()
+    st.rerun()
 
 if "selected_deployment" not in st.session_state:
     st.session_state["selected_deployment"] = None
