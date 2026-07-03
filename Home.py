@@ -1,8 +1,12 @@
 import streamlit as st
 
-from lib.auth import current_user, login_widget, logout_button
+from lib.auth import current_user, login_widget, logout_button, try_restore_session
+from lib.style import apply_custom_css
 
 st.set_page_config(page_title="PSAT Drift Database", page_icon="\U0001F30A", layout="wide")
+apply_custom_css()
+
+try_restore_session()
 
 st.title("\U0001F30A PSAT Drift Database")
 st.caption("A shared database of pop-up satellite tag (PSAT) drift positions for surface current research.")

@@ -5,8 +5,10 @@ from lib.auth import require_login, current_user
 from lib.db import get_client
 from lib.cleaning import remove_land_points, remove_unrealistic_speed
 from lib.parsers.wildlife_computers import parse_wc_locations
+from lib.style import apply_custom_css
 
 st.set_page_config(page_title="Upload", page_icon="\u2b06\ufe0f", layout="wide")
+apply_custom_css()
 require_login()
 user = current_user()
 client = get_client()

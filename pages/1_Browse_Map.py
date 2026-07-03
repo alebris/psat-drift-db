@@ -4,8 +4,10 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 from lib.db import get_client
+from lib.style import apply_custom_css
 
 st.set_page_config(page_title="Browse map", page_icon="\U0001F5FA\ufe0f", layout="wide")
+apply_custom_css()
 client = get_client()
 
 st.title("Browse drift tracks")
