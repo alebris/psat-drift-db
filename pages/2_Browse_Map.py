@@ -3,18 +3,48 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 
-from lib.auth import try_restore_session
 from lib.db import get_client
-from lib.maps import QUALITY_COLORS, ocean_basemap
 
 st.set_page_config(page_title="Browse map", page_icon="\U0001F5FA\ufe0f", layout="wide")
 client = get_client()
-try_restore_session()
 
 st.title("Browse drift tracks")
 
+QUALITY_COLORS = {
+    "high": "#1a9850",
+    "medium": "#f2b705",
+    "low": "#d62728",
+    "unusable": "#888888",
+    "unknown": "#555555",
+}
+
 if "selected_deployment" not in st.session_state:
     st.session_state["selected_deployment"] = None
+
+
+def ocean_basemap(fmap):
+    key = st.secrets.get("MAPTILER_KEY", None)
+    if key:
+        folium.TileLayer(
+            tiles=f"https://api.maptiler.com/maps/ocean/{{z}}/{{x}}/{{y}}.png?key={key}",
+            attr="\u00a9 MapTiler \u00a9 OpenStreetMap contributors",
+            name="MapTiler Ocean",
+            control=False,
+        ).add_to(fmap)
+    else:
+        folium.TileLayer(
+            tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}",
+            attr="Esri, GEBCO, NOAA, National Geographic, and other contributors",
+            name="Esri Ocean",
+            control=False,
+        ).add_to(fmap)
+        folium.TileLayer(
+            tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Reference/MapServer/tile/{z}/{y}/{x}",
+            attr="Esri",
+            name="Ocean reference",
+            control=False,
+            overlay=True,
+        ).add_to(fmap)
 
 
 @st.cache_data(ttl=300)
@@ -71,10 +101,7 @@ if positions.empty:
     st.stop()
 
 center = [positions["latitude"].mean(), positions["longitude"].mean()]
-# prefer_canvas: renders vector layers (markers, lines) on <canvas> instead of
-# SVG DOM elements — the single biggest lever for map speed with hundreds of
-# points, since it avoids creating one DOM node per marker.
-fmap = folium.Map(location=center, zoom_start=5, tiles=None, control_scale=True, prefer_canvas=True)
+fmap = folium.Map(location=center, zoom_start=5, tiles=None, control_scale=True)
 ocean_basemap(fmap)
 
 for deployment_id, group in positions.groupby("deployment_id"):
@@ -90,9 +117,6 @@ for deployment_id, group in positions.groupby("deployment_id"):
         ).add_to(fmap)
 
     for _, row in group.iterrows():
-        # Tooltip only (no Popup) — a big chunk of the previous slowness was
-        # the per-point formatted Popup HTML; the tooltip alone carries the
-        # deploy_id needed for click-to-filter, at a fraction of the payload.
         folium.CircleMarker(
             location=[row["latitude"], row["longitude"]],
             radius=4,
@@ -101,9 +125,14 @@ for deployment_id, group in positions.groupby("deployment_id"):
             fill_color=QUALITY_COLORS.get(row["quality_class"], "#555555"),
             fill_opacity=0.85,
             tooltip=deploy_label,
+            popup=folium.Popup(
+                f"<b>{deploy_label}</b><br>{row['ts']}<br>"
+                f"type: {row['location_type']}<br>quality: {row['quality_class']}",
+                max_width=220,
+            ),
         ).add_to(fmap)
 
-map_data = st_folium(fmap, use_container_width=True, height=820, key="browse_map")
+map_data = st_folium(fmap, use_container_width=True, height=820)
 
 clicked_label = map_data.get("last_object_clicked_tooltip") if map_data else None
 clicked_id = deploy_to_id.get(clicked_label) if clicked_label else None

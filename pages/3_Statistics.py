@@ -2,12 +2,10 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from lib.auth import try_restore_session
 from lib.db import get_client
 
 st.set_page_config(page_title="Statistics", page_icon="\U0001F4CA", layout="wide")
 client = get_client()
-try_restore_session()
 
 st.title("Database statistics")
 
