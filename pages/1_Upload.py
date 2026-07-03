@@ -1,3 +1,4 @@
+import pandas as pd
 import streamlit as st
 
 from lib.auth import require_login, current_user
@@ -25,7 +26,9 @@ if manufacturer != "Wildlife Computers (Locations.csv)":
     st.info("This format isn't wired up yet — only Wildlife Computers merged Locations.csv exports can be uploaded right now.")
     st.stop()
 
-uploaded = st.file_uploader("Wildlife Computers Locations.csv", type="csv")
+uploaded_files = st.file_uploader(
+    "Wildlife Computers Locations.csv", type="csv", accept_multiple_files=True
+)
 
 with st.form("deployment_metadata"):
     st.subheader("Deployment metadata")
@@ -35,24 +38,38 @@ with st.form("deployment_metadata"):
     submitted = st.form_submit_button("Parse file")
 
 if submitted:
-    if uploaded is None:
-        st.error("Please choose a file first.")
-        st.stop()
-    try:
-        positions = parse_wc_locations(uploaded)
-    except Exception as e:
-        st.error(f"Could not parse file: {e}")
+    if not uploaded_files:
+        st.error("Please choose at least one file first.")
         st.stop()
 
-    if positions.empty:
-        st.error("No valid position rows found in this file.")
+    parsed = []
+    dupes_removed = 0
+    for f in uploaded_files:
+        try:
+            file_positions = parse_wc_locations(f)
+        except Exception as e:
+            st.error(f"Could not parse {f.name}: {e}")
+            st.stop()
+        dupes_removed += file_positions.attrs.get("dupes_removed", 0)
+        if not file_positions.empty:
+            file_positions["source_filename"] = f.name
+            parsed.append(file_positions)
+
+    if not parsed:
+        st.error("No valid position rows found in these files.")
         st.stop()
+
+    positions = pd.concat(parsed, ignore_index=True)
+    before = len(positions)
+    positions = positions.drop_duplicates(subset=["deploy_id", "ts", "latitude", "longitude"])
+    dupes_removed += before - len(positions)
+    positions = positions.sort_values("ts").reset_index(drop=True)
+    positions.attrs["dupes_removed"] = dupes_removed
 
     st.session_state["pending_upload"] = {
         "positions": positions,
         "species": species,
         "notes": notes,
-        "filename": uploaded.name,
     }
 
 pending = st.session_state.get("pending_upload")
@@ -71,6 +88,7 @@ if pending is not None:
         try:
             for deploy_id, group in positions.groupby("deploy_id"):
                 first = group.iloc[0]
+                source_filenames = ", ".join(sorted(group["source_filename"].unique()))
                 deployment = (
                     client.table("deployments")
                     .insert(
@@ -80,7 +98,7 @@ if pending is not None:
                             "instrument_model": str(first["instrument_model"]),
                             "manufacturer": "wildlife_computers",
                             "species": pending["species"] or None,
-                            "source_filename": pending["filename"],
+                            "source_filename": source_filenames,
                             "source_format": "wc_locations_v1",
                             "uploader_id": user.id,
                             "notes": pending["notes"] or None,
